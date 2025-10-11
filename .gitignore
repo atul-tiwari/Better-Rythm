@@ -39,6 +39,13 @@ env.bak/
 venv.bak/
 .venv/
 .env/
+pyvenv.cfg
+Scripts/
+Lib/
+Include/
+share/
+bin/
+lib64/
 
 # PyInstaller
 *.manifest
