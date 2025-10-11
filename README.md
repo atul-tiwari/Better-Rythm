@@ -1,4 +1,4 @@
-# Discord Music Bot with YouTube Music API
+`# Discord Music Bot with YouTube Music API
 
 A comprehensive Discord music bot that uses YouTube Music API for ad-free music streaming, with a Flask web interface for queue management.
 
