@@ -169,6 +169,83 @@ discord-music-bot/
 - **Intuitive Commands**: Easy-to-remember command structure
 - **Help System**: Built-in help command with all available functions
 
+## 🐳 Docker Deployment
+
+### **Quick Start with Docker**
+
+1. **Clone the repository**
+   ```bash
+   git clone <repository-url>
+   cd discord-music-bot
+   ```
+
+2. **Set up environment variables**
+   ```bash
+   cp .env.example .env
+   # Edit .env with your Discord token and YouTube API key
+   ```
+
+3. **Build and run with Docker Compose**
+   ```bash
+   docker-compose up -d
+   ```
+
+4. **View logs**
+   ```bash
+   docker-compose logs -f
+   ```
+
+### **Manual Docker Build**
+
+1. **Build the image**
+   ```bash
+   docker build -t discord-music-bot .
+   ```
+
+2. **Run the container**
+   ```bash
+   docker run -d \
+     --name discord-music-bot \
+     --env-file .env \
+     -v $(pwd)/data:/app/data \
+     -v $(pwd)/queue.json:/app/queue.json \
+     discord-music-bot
+   ```
+
+### **Docker Configuration**
+
+The Docker setup includes:
+- **Base Image**: Python 3.11 slim for optimal size
+- **System Dependencies**: FFmpeg for audio processing
+- **Security**: Non-root user execution
+- **Health Checks**: Automatic container health monitoring
+- **Volume Mounts**: Persistent queue and data storage
+- **Environment Variables**: All configuration via .env file
+
+### **Environment Variables**
+
+Required variables in `.env`:
+```env
+DISCORD_TOKEN=your_discord_bot_token_here
+YOUTUBE_API_KEY=your_youtube_api_key_here
+```
+
+Optional variables:
+```env
+DISCORD_GUILD_ID=0
+MAX_QUEUE_SIZE=50
+MAX_SONG_DURATION=600
+DEFAULT_VOLUME=0.5
+```
+
+### **Docker Commands**
+
+- **Start**: `docker-compose up -d`
+- **Stop**: `docker-compose down`
+- **Restart**: `docker-compose restart`
+- **View logs**: `docker-compose logs -f`
+- **Update**: `docker-compose pull && docker-compose up -d`
+
 ## 🚀 Technical Architecture
 
 ### **Async Programming**
@@ -189,4 +266,10 @@ discord-music-bot/
 - User-friendly error messages
 - Automatic recovery mechanisms
 
-This Discord Music Bot provides a complete, professional-grade music streaming solution with modern Discord features and robust functionality.
+### **Containerization**
+- Docker-based deployment for easy setup
+- Isolated environment with all dependencies
+- Persistent data storage
+- Health monitoring and auto-restart
+
+This Discord Music Bot provides a complete, professional-grade music streaming solution with modern Discord features, robust functionality, and easy Docker deployment.

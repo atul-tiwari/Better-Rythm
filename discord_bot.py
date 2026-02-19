@@ -1,55 +1,75 @@
 import discord
 from discord.ext import commands
 import asyncio
-import yt_dlp
-import os
 import json
-from typing import Optional, List, Dict
+import os
+import random
+import yt_dlp
+from typing import Optional
 from config import Config
 from youtube_api import YouTubeMusicAPI
 
-# Global bot instance
-bot = None
+# YT-DLP options for extracting stream URL only (no download)
+YTDL_OPTS = {
+    'format': 'bestaudio/best',
+    'noplaylist': True,
+    'quiet': True,
+    'no_warnings': True,
+    'nocheckcertificate': True,
+    'http_headers': {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-us,en;q=0.5',
+    },
+}
+
+def get_ffmpeg_path():
+    ffmpeg_exe = 'ffmpeg.exe' if os.name == 'nt' else 'ffmpeg'
+    if Config.FFMPEG_LOCATION and os.path.exists(Config.FFMPEG_LOCATION):
+        loc = Config.FFMPEG_LOCATION
+        base = loc if os.path.isdir(loc) else os.path.dirname(loc)
+        path = loc if os.path.isfile(loc) else os.path.join(base, ffmpeg_exe)
+    else:
+        base = os.path.join(os.path.expanduser('~'), 'ffmpeg')
+        path = os.path.join(base, ffmpeg_exe)
+    return (base, path) if os.path.isfile(path) else (None, None)
+
+def get_stream_url(url: str) -> Optional[str]:
+    """Extract direct audio stream URL using yt-dlp (no download)."""
+    try:
+        with yt_dlp.YoutubeDL(YTDL_OPTS) as ydl:
+            info = ydl.extract_info(url, download=False)
+        if not info:
+            return None
+        return info.get('url') or next(
+            (f.get('url') for f in reversed(info.get('formats') or []) if f.get('vcodec') == 'none' and f.get('url')),
+            None
+        )
+    except Exception as e:
+        print(f"Stream extract error: {e}")
+        return None
 
 class MusicBot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
         intents.message_content = True
         intents.voice_states = True
-        
         super().__init__(command_prefix='!', intents=intents)
-        
+
         self.youtube_api = YouTubeMusicAPI()
         self.voice_client = None
         self.current_song = None
         self.queue = []
         self.queue_file = "queue.json"
-        
-        # YT-DLP options for audio only
-        self.ytdl_opts = {
-            'format': 'bestaudio/best',
-            'extractaudio': True,
-            'audioformat': 'mp3',
-            'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s',
-            'restrictfilenames': True,
-            'noplaylist': True,
-            'nocheckcertificate': True,
-            'ignoreerrors': False,
-            'logtostderr': False,
-            'quiet': True,
-            'no_warnings': True,
-            'default_search': 'auto',
-            'source_address': '0.0.0.0',
-            'extract_flat': False,
-        }
-        
+
+        ffmpeg_dir, ffmpeg_path = get_ffmpeg_path()
         self.ffmpeg_opts = {
             'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
-            'options': '-vn',
-            'executable': os.path.join(os.path.expanduser('~'), 'ffmpeg', 'ffmpeg.exe')
+            'options': '-vn -f s16le -ar 48000 -ac 2',
         }
-        
-        # Load queue from file
+        if ffmpeg_path:
+            self.ffmpeg_opts['executable'] = ffmpeg_path
+
         self.load_queue()
     
     def load_queue(self):
@@ -102,48 +122,54 @@ class MusicBot(commands.Bot):
             self.voice_client = await channel.connect()
         
         return True
-    
+
+    def _after_playing(self, ctx):
+        """Called when playback finishes: play next song."""
+        asyncio.run_coroutine_threadsafe(self.play_next_song(ctx), self.loop)
+
     async def play_next_song(self, ctx):
-        """Play the next song in the queue"""
+        """Play the next song in the queue (streaming, no download)."""
         if not self.queue:
             await ctx.send("Queue is empty!")
             return
-        
+
         song_data = self.queue.pop(0)
         self.current_song = song_data
         self.save_queue()
-        
+
         try:
-            # Download and play the song
-            with yt_dlp.YoutubeDL(self.ytdl_opts) as ydl:
-                info = ydl.extract_info(song_data['url'], download=False)
-                url2 = info['url']
-                
-                source = discord.FFmpegPCMAudio(url2, **self.ffmpeg_opts)
-                
-                if self.voice_client:
-                    self.voice_client.play(source, after=lambda e: asyncio.run_coroutine_threadsafe(
-                        self.play_next_song(ctx), self.loop
-                    ))
-                    
-                    embed = discord.Embed(
-                        title="🎵 Now Playing",
-                        description=f"**{song_data['title']}**\nby {song_data['artist']}",
-                        color=0x00ff00
-                    )
-                    embed.set_thumbnail(url=song_data['thumbnail'])
-                    embed.add_field(name="Duration", value=f"{song_data['duration']//60}:{song_data['duration']%60:02d}")
-                    embed.add_field(name="Requested by", value=song_data['requested_by'])
-                    
-                    # Create control buttons
-                    view = MusicControlView()
-                    message = await ctx.send(embed=embed, view=view)
-                    
-                    # Disable buttons after 30 seconds
-                    await asyncio.sleep(30)
-                    view.disable_all_items()
-                    await message.edit(view=view)
-        
+            loading_msg = await ctx.send("⏳ Loading...")
+            stream_url = await asyncio.to_thread(get_stream_url, song_data['url'])
+            if not stream_url:
+                await loading_msg.edit(content="Failed to load audio. Skipping.")
+                await self.play_next_song(ctx)
+                return
+
+            source = discord.FFmpegPCMAudio(stream_url, **self.ffmpeg_opts)
+
+            if self.voice_client:
+                self.voice_client.play(
+                    source,
+                    after=lambda e: self._after_playing(ctx),
+                )
+
+                embed = discord.Embed(
+                    title="🎵 Now Playing",
+                    description=f"**{song_data['title']}**\nby {song_data['artist']}",
+                    color=0x00ff00
+                )
+                embed.set_thumbnail(url=song_data['thumbnail'])
+                embed.add_field(name="Duration", value=f"{song_data['duration']//60}:{song_data['duration']%60:02d}")
+                embed.add_field(name="Requested by", value=song_data['requested_by'])
+
+                view = MusicControlView()
+                await loading_msg.edit(content=None, embed=embed, view=view)
+                message = loading_msg
+
+                await asyncio.sleep(30)
+                view.disable_all_items()
+                await message.edit(view=view)
+
         except Exception as e:
             print(f"Error playing song: {e}")
             await ctx.send(f"Error playing song: {str(e)}")
@@ -155,7 +181,12 @@ bot = MusicBot()
 class MusicControlView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=30)
-    
+
+    def disable_all_items(self):
+        """Disable all buttons in this view."""
+        for item in self.children:
+            item.disabled = True
+
     @discord.ui.button(label="⏸️ Pause", style=discord.ButtonStyle.secondary)
     async def pause_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if bot.voice_client and bot.voice_client.is_playing():
@@ -378,8 +409,7 @@ async def shuffle_queue(ctx):
     if len(bot.queue) < 2:
         await ctx.send("Need at least 2 songs to shuffle!")
         return
-    
-    import random
+
     random.shuffle(bot.queue)
     bot.save_queue()
     

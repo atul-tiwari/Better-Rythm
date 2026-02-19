@@ -15,6 +15,8 @@ class Config:
     MAX_QUEUE_SIZE = int(os.getenv('MAX_QUEUE_SIZE', 50))
     MAX_SONG_DURATION = int(os.getenv('MAX_SONG_DURATION', 600))
     DEFAULT_VOLUME = float(os.getenv('DEFAULT_VOLUME', 0.5))
+    # Optional: path to ffmpeg directory or to ffmpeg.exe (so yt-dlp and the bot can find ffmpeg/ffprobe)
+    FFMPEG_LOCATION = os.getenv('FFMPEG_LOCATION', '').strip() or None
     
     @staticmethod
     def validate():
