@@ -199,11 +199,6 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Docker (if you containerize later)
-Dockerfile
-docker-compose.yml
-.dockerignore
-
 # Git
 *.orig
 
