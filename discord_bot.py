@@ -61,6 +61,8 @@ class MusicBot(commands.Bot):
         self.current_song = None
         self.queue = []
         self.queue_file = "queue.json"
+        self.radio_mode = False
+        self.radio_related_count = 5
 
         ffmpeg_dir, ffmpeg_path = get_ffmpeg_path()
         self.ffmpeg_opts = {
@@ -130,8 +132,24 @@ class MusicBot(commands.Bot):
     async def play_next_song(self, ctx):
         """Play the next song in the queue (streaming, no download)."""
         if not self.queue:
-            await ctx.send("Queue is empty!")
-            return
+            if self.radio_mode and self.current_song:
+                related = await asyncio.to_thread(
+                    self.youtube_api.get_related_songs,
+                    self.current_song['id'],
+                    max_results=self.radio_related_count
+                )
+                if related:
+                    for s in related:
+                        s['requested_by'] = "📻 Radio"
+                        self.queue.append(s)
+                    self.save_queue()
+                    await ctx.send(f"📻 **Radio:** Added {len(related)} similar song(s) to the queue.")
+                else:
+                    await ctx.send("Queue is empty! (Radio couldn't find more similar songs)")
+                    return
+            else:
+                await ctx.send("Queue is empty!")
+                return
 
         song_data = self.queue.pop(0)
         self.current_song = song_data
@@ -415,6 +433,22 @@ async def shuffle_queue(ctx):
     
     await ctx.send("🔀 Queue shuffled!")
 
+@bot.command(name='radio', aliases=['rad'])
+async def radio_mode(ctx, toggle: str = None):
+    """Toggle radio mode: when on, similar songs are auto-queued after each track (like YT Music)."""
+    if toggle is None:
+        status = "**ON** 📻" if bot.radio_mode else "**OFF**"
+        await ctx.send(f"Radio mode is {status}. Use `!radio on` or `!radio off` to change.")
+        return
+    if toggle.lower() in ("on", "1", "yes", "enable"):
+        bot.radio_mode = True
+        await ctx.send("📻 **Radio mode ON** — similar songs will be auto-queued when the queue runs out.")
+    elif toggle.lower() in ("off", "0", "no", "disable"):
+        bot.radio_mode = False
+        await ctx.send("📻 **Radio mode OFF** — queue will stop when empty.")
+    else:
+        await ctx.send("Use `!radio on` or `!radio off`.")
+
 @bot.command(name='nowplaying', aliases=['np'])
 async def now_playing(ctx):
     """Show currently playing song"""
@@ -471,6 +505,7 @@ async def help_command(ctx):
         ("!remove <position>", "Remove song from queue"),
         ("!move <from> <to>", "Move song in queue"),
         ("!shuffle", "Shuffle the queue"),
+        ("!radio [on|off]", "Toggle radio mode (auto-queue similar songs)"),
         ("!nowplaying", "Show currently playing song"),
         ("!connect", "Connect bot to voice channel"),
         ("!disconnect", "Disconnect bot from voice channel"),

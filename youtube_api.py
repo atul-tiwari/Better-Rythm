@@ -130,6 +130,42 @@ class YouTubeMusicAPI:
             print(f"Error getting video info: {e}")
             return None
     
+    def get_related_songs(self, video_id: str, max_results: int = 5) -> List[Dict]:
+        """Get songs related to a video (for radio / auto-play)."""
+        try:
+            search_url = f"{self.base_url}/search"
+            params = {
+                'part': 'snippet',
+                'relatedToVideoId': video_id,
+                'type': 'video',
+                'maxResults': max_results,
+                'key': self.api_key,
+            }
+            response = requests.get(search_url, params=params)
+            response.raise_for_status()
+
+            results = []
+            for item in response.json().get('items', []):
+                vid = item['id'].get('videoId')
+                if not vid or vid == video_id:
+                    continue
+                snippet = item['snippet']
+                duration = self._get_video_duration(vid)
+                if duration is None or duration > Config.MAX_SONG_DURATION:
+                    continue
+                results.append({
+                    'id': vid,
+                    'title': snippet['title'],
+                    'artist': snippet['channelTitle'],
+                    'thumbnail': snippet['thumbnails']['medium']['url'],
+                    'duration': duration,
+                    'url': f"https://www.youtube.com/watch?v={vid}"
+                })
+            return results
+        except Exception as e:
+            print(f"Error getting related songs: {e}")
+            return []
+
     def extract_video_id(self, url: str) -> Optional[str]:
         """Extract video ID from YouTube URL"""
         patterns = [
