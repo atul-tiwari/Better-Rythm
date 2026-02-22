@@ -136,7 +136,9 @@ class MusicBot(commands.Bot):
                 related = await asyncio.to_thread(
                     self.youtube_api.get_related_songs,
                     self.current_song['id'],
-                    max_results=self.radio_related_count
+                    max_results=self.radio_related_count,
+                    title=self.current_song.get('title'),
+                    artist=self.current_song.get('artist'),
                 )
                 if related:
                     for s in related:
