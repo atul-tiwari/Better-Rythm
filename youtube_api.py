@@ -130,16 +130,57 @@ class YouTubeMusicAPI:
             print(f"Error getting video info: {e}")
             return None
     
-    def get_related_songs(self, video_id: str, max_results: int = 5) -> List[Dict]:
-        """Get songs related to a video (for radio / auto-play)."""
+    _TITLE_NOISE = re.compile(
+        r'[\(\[]\s*(?:Official\s*(?:Music\s*)?Video|Official\s*Audio|'
+        r'Lyric(?:s)?\s*Video|Audio\s*(?:Only)?|HD|HQ|4K|MV|M/V|'
+        r'Visuali[sz]er|Live|Remix|Extended|Explicit|Clean)\s*[\)\]]',
+        re.IGNORECASE,
+    )
+
+    @staticmethod
+    def _clean_title(title: str) -> str:
+        """Strip common noise phrases from a video title for a cleaner search query."""
+        title = YouTubeMusicAPI._TITLE_NOISE.sub('', title)
+        title = re.sub(r'\s{2,}', ' ', title).strip()
+        return title
+
+    @staticmethod
+    def _clean_artist(artist: str) -> str:
+        """Strip VEVO / '- Topic' suffixes from channel names."""
+        artist = re.sub(r'\s*[-–]\s*Topic$', '', artist, flags=re.IGNORECASE)
+        artist = re.sub(r'VEVO$', '', artist, flags=re.IGNORECASE)
+        return artist.strip()
+
+    def get_related_songs(self, video_id: str, max_results: int = 5,
+                          title: str = None, artist: str = None) -> List[Dict]:
+        """Get similar songs via keyword search (for radio / auto-play).
+
+        Uses the current song's title & artist to find related music,
+        since YouTube removed the relatedToVideoId parameter.
+        """
         try:
+            if not title:
+                info = self.get_video_info(video_id)
+                if not info:
+                    return []
+                title = info['title']
+                artist = info.get('artist', '')
+
+            query = self._clean_title(title)
+            if artist:
+                clean_artist = self._clean_artist(artist)
+                if clean_artist:
+                    query = f"{clean_artist} {query}"
+
             search_url = f"{self.base_url}/search"
+            print(query)
             params = {
                 'part': 'snippet',
-                'relatedToVideoId': video_id,
+                'q': query,
                 'type': 'video',
-                'maxResults': max_results,
+                'maxResults': max_results + 5,
                 'key': self.api_key,
+                'videoCategoryId': '10',
             }
             response = requests.get(search_url, params=params)
             response.raise_for_status()
@@ -161,6 +202,8 @@ class YouTubeMusicAPI:
                     'duration': duration,
                     'url': f"https://www.youtube.com/watch?v={vid}"
                 })
+                if len(results) >= max_results:
+                    break
             return results
         except Exception as e:
             print(f"Error getting related songs: {e}")
