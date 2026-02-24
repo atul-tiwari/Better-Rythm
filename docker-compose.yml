@@ -2,7 +2,8 @@ version: '3.8'
 
 services:
   discord-music-bot:
-    image: atulus4247/better-rythm-discord-bot
+    build: .
+    image: better-rythm-discord-bot
     container_name: better-rythm-discord-bot
     restart: unless-stopped
     environment:
