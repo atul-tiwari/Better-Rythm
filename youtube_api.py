@@ -3,11 +3,13 @@ import re
 import json
 from typing import Dict, List, Optional
 from config import Config
+from ytmusicapi import YTMusic
 
 class YouTubeMusicAPI:
     def __init__(self):
         self.api_key = Config.YOUTUBE_API_KEY
         self.base_url = "https://www.googleapis.com/youtube/v3"
+        self.ytmusic = YTMusic()
         
     def search_song(self, query: str, max_results: int = 5) -> List[Dict]:
         """Search for songs on YouTube Music"""
@@ -151,13 +153,64 @@ class YouTubeMusicAPI:
         artist = re.sub(r'VEVO$', '', artist, flags=re.IGNORECASE)
         return artist.strip()
 
+    @staticmethod
+    def _parse_length(length_str: str) -> Optional[int]:
+        """Parse a 'M:SS' or 'H:MM:SS' length string into total seconds."""
+        if not length_str:
+            return None
+        parts = length_str.split(':')
+        try:
+            parts = [int(p) for p in parts]
+        except ValueError:
+            return None
+        if len(parts) == 2:
+            return parts[0] * 60 + parts[1]
+        if len(parts) == 3:
+            return parts[0] * 3600 + parts[1] * 60 + parts[2]
+        return None
+
     def get_related_songs(self, video_id: str, max_results: int = 5,
                           title: str = None, artist: str = None) -> List[Dict]:
-        """Get similar songs via keyword search (for radio / auto-play).
+        """Get similar songs using YouTube Music's radio algorithm.
 
-        Uses the current song's title & artist to find related music,
-        since YouTube removed the relatedToVideoId parameter.
+        Falls back to keyword search if ytmusicapi fails.
         """
+        try:
+            result = self.ytmusic.get_watch_playlist(videoId=video_id, limit=max_results + 5)
+            tracks = result.get("tracks", [])
+
+            results = []
+            for t in tracks:
+                vid = t.get("videoId")
+                if not vid or vid == video_id:
+                    continue
+                duration = self._parse_length(t.get("length"))
+                if duration is not None and duration > Config.MAX_SONG_DURATION:
+                    continue
+                thumbnails = t.get("thumbnail") or []
+                thumb_url = thumbnails[0]["url"] if thumbnails else ""
+                artists = ", ".join(a["name"] for a in (t.get("artists") or []))
+                results.append({
+                    'id': vid,
+                    'title': t.get("title", ""),
+                    'artist': artists,
+                    'thumbnail': thumb_url,
+                    'duration': duration,
+                    'url': f"https://www.youtube.com/watch?v={vid}"
+                })
+                if len(results) >= max_results:
+                    break
+
+            if results:
+                return results
+        except Exception as e:
+            print(f"ytmusicapi radio failed, falling back to keyword search: {e}")
+
+        return self._get_related_songs_fallback(video_id, max_results, title, artist)
+
+    def _get_related_songs_fallback(self, video_id: str, max_results: int = 5,
+                                    title: str = None, artist: str = None) -> List[Dict]:
+        """Fallback: keyword search via YouTube Data API."""
         try:
             if not title:
                 info = self.get_video_info(video_id)
@@ -173,7 +226,6 @@ class YouTubeMusicAPI:
                     query = f"{clean_artist} {query}"
 
             search_url = f"{self.base_url}/search"
-            print(query)
             params = {
                 'part': 'snippet',
                 'q': query,
