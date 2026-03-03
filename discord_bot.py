@@ -121,8 +121,18 @@ class MusicBot(commands.Bot):
             else:
                 await self.voice_client.move_to(channel)
         else:
-            self.voice_client = await channel.connect()
-        
+            try:
+                # Longer timeout (90s) and reconnect=True to handle Discord voice 4017 / server switch
+                self.voice_client = await channel.connect(timeout=90, reconnect=True)
+            except asyncio.TimeoutError:
+                await ctx.send(
+                    "❌ **Voice connection timed out.** Discord's voice servers may be slow or blocking the connection. "
+                    "Try again in a moment, use a different voice channel, or check your network/firewall."
+                )
+                return False
+            except Exception as e:
+                await ctx.send(f"❌ Could not connect to voice: {e}")
+                return False
         return True
 
     def _after_playing(self, ctx):

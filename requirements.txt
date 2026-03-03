@@ -6,7 +6,7 @@ audioop-lts
 certifi
 cffi
 charset-normalizer
-discord.py
+discord.py[voice]>=2.5.0
 frozenlist
 idna
 iniconfig
